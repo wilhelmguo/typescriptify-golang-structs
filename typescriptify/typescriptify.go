@@ -21,7 +21,7 @@ type TypeScriptify struct {
 	types       map[reflect.Kind]string
 
 	// throwaway, used when converting
-	alreadyConverted map[reflect.Type]bool
+	alreadyConverted map[string]bool
 }
 
 func New() *TypeScriptify {
@@ -93,7 +93,7 @@ func (this *TypeScriptify) AddType(typeOf reflect.Type) {
 }
 
 func (this *TypeScriptify) Convert(customCode map[string]string) (string, error) {
-	this.alreadyConverted = make(map[reflect.Type]bool)
+	this.alreadyConverted = make(map[string]bool)
 
 	result := ""
 	for _, typeof := range this.golangTypes {
@@ -206,13 +206,12 @@ func (this TypeScriptify) ConvertToFile(fileName string) error {
 }
 
 func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[string]string) (string, error) {
-	if _, found := this.alreadyConverted[typeOf]; found { // Already converted
-		return "", nil
-	}
-
 	typeName := typeOf.Name()
 	if typeOf.Kind() == reflect.Ptr {
 		typeName = typeOf.Elem().Name()
+	}
+	if _, found := this.alreadyConverted[typeName]; found { // Already converted
+		return "", nil
 	}
 	entityName := fmt.Sprintf("%s%s%s", this.Prefix, this.Suffix, typeName)
 	result := fmt.Sprintf("class %s {\n", entityName)
@@ -233,17 +232,61 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 		}
 		if len(jsonFieldName) > 0 && jsonFieldName != "-" {
 			var err error
-			if field.Type.Kind() == reflect.Struct || field.Type.Kind() == reflect.Ptr { // Struct:
-				typeScriptChunk, err := this.convertType(field.Type, customCode)
-				if err != nil {
-					return "", err
+			types := make([]reflect.Kind, 0)
+			if field.Type.Kind() == reflect.Map {
+				value := field.Type.Elem().Kind()
+				key := field.Type.Key().Kind()
+				types = append(types, key, value)
+				_, keyOK := this.types[key]
+				_, valueOK := this.types[value]
+				if keyOK && valueOK {
+					err = builder.AddSimpleField(jsonFieldName, types, field.Type.Kind())
+				} else {
+					if !keyOK {
+						typeScriptChunk, err := this.convertType(field.Type.Key(), customCode)
+						if err != nil {
+							return "", err
+						}
+						result = typeScriptChunk + "\n" + result
+
+					}
+					if !valueOK {
+						typeScriptChunk, err := this.convertType(field.Type.Elem(), customCode)
+						if err != nil {
+							return "", err
+						}
+						result = typeScriptChunk + "\n" + result
+					}
+					name := fmt.Sprintf("Map<%s,%s>", this.types[field.Type.Key().Kind()], field.Type.Elem().Name())
+					builder.AddStructField(jsonFieldName, name)
 				}
-				result = typeScriptChunk + "\n" + result
-				name := field.Type.Name()
-				if field.Type.Kind() == reflect.Ptr {
-					name = field.Type.Elem().Name()
+
+			} else if field.Type.Kind() == reflect.Struct || field.Type.Kind() == reflect.Ptr { // Struct:
+
+				kind := field.Type.Kind()
+				if kind == reflect.Ptr {
+					kind = field.Type.Elem().Kind()
 				}
-				builder.AddStructField(jsonFieldName, name)
+				if _, ok := this.types[kind]; ok {
+					types := make([]reflect.Kind, 0)
+					if field.Type.Kind() == reflect.Map {
+						typeName := field.Type.Elem().Kind()
+						key := field.Type.Key().Kind()
+						types = append(types, key, typeName)
+					}
+					err = builder.AddSimpleField(jsonFieldName, types, field.Type.Elem().Kind())
+				} else {
+					typeScriptChunk, err := this.convertType(field.Type, customCode)
+					if err != nil {
+						return "", err
+					}
+					result = typeScriptChunk + "\n" + result
+					name := field.Type.Name()
+					if field.Type.Kind() == reflect.Ptr {
+						name = field.Type.Elem().Name()
+					}
+					builder.AddStructField(jsonFieldName, name)
+				}
 			} else if field.Type.Kind() == reflect.Slice { // Slice:
 				if field.Type.Elem().Kind() == reflect.Struct { // Slice of structs:
 					typeScriptChunk, err := this.convertType(field.Type.Elem(), customCode)
@@ -287,7 +330,11 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 
 	result += "}"
 
-	this.alreadyConverted[typeOf] = true
+	name := typeOf.Name()
+	if name == "" {
+		name = typeOf.Elem().Name()
+	}
+	this.alreadyConverted[name] = true
 
 	return result, nil
 }

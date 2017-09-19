@@ -4,6 +4,8 @@ import (
 	"github.com/wilhelmguo/typescriptify-golang-structs/typescriptify"
 )
 
+type TypeString string
+
 type Address struct {
 	// Used in html
 	City    string  `json:"city"`
@@ -17,10 +19,11 @@ type PersonalInfo struct {
 }
 
 type Person struct {
-	Name         map[string]int64 `json:"name"`
-	PersonalInfo *PersonalInfo    `json:"personal_info"`
-	Nicknames    []string         `json:"nicknames"`
-	Addresses    []Address        `json:"addresses"`
+	Name            map[string]int64            `json:"name"`
+	PersonalInfoMap map[TypeString]PersonalInfo `json:"personal_info_map"`
+	PersonalInfo    PersonalInfo                `json:"personal_info"`
+	Nicknames       []string                    `json:"nicknames"`
+	Addresses       []Address                   `json:"addresses"`
 }
 
 func main() {
