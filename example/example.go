@@ -19,11 +19,9 @@ type PersonalInfo struct {
 }
 
 type Person struct {
-	Name            map[string]int64            `json:"name"`
-	PersonalInfoMap map[TypeString]PersonalInfo `json:"personal_info_map"`
-	PersonalInfo    PersonalInfo                `json:"personal_info"`
-	Nicknames       []string                    `json:"nicknames"`
-	Addresses       []Address                   `json:"addresses"`
+	Address `json:",inline"`
+	PersonalInfo        `json:"metadata,omitempty"`
+	AddressMeta Address `json:"address,omitempty"`
 }
 
 func main() {

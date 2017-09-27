@@ -60,7 +60,7 @@ func New() *TypeScriptify {
 
 func deepFields(typeOf reflect.Type) []reflect.StructField {
 	fields := make([]reflect.StructField, 0)
-
+	fmt.Println("111:", typeOf.Kind(), typeOf.Name())
 	if typeOf.Kind() == reflect.Ptr {
 		typeOf = typeOf.Elem()
 	}
@@ -71,9 +71,15 @@ func deepFields(typeOf reflect.Type) []reflect.StructField {
 
 	for i := 0; i < typeOf.NumField(); i++ {
 		f := typeOf.Field(i)
-
 		kind := f.Type.Kind()
-		if f.Anonymous && kind == reflect.Struct {
+		anonymous := false
+		jsonTag := f.Tag.Get("json")
+		jsonTags := strings.Split(jsonTag, ",")
+		if len(jsonTags) == 2 && jsonTags[1] == "inline" && f.Anonymous {
+			anonymous = true
+		}
+		fmt.Println("222:", f.Type.Kind(), f.Type.Name(), jsonTag)
+		if anonymous && kind == reflect.Struct {
 			//fmt.Println(v.Interface())
 			fields = append(fields, deepFields(f.Type)...)
 		} else {
@@ -214,7 +220,7 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 		return "", nil
 	}
 	entityName := fmt.Sprintf("%s%s%s", this.Prefix, this.Suffix, typeName)
-	result := fmt.Sprintf("class %s {\n", entityName)
+	result := fmt.Sprintf("export class %s {\n", entityName)
 	builder := typeScriptClassBuilder{
 		types:  this.types,
 		indent: this.Indent,
@@ -232,35 +238,8 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 		}
 		if len(jsonFieldName) > 0 && jsonFieldName != "-" {
 			var err error
-			types := make([]reflect.Kind, 0)
 			if field.Type.Kind() == reflect.Map {
-				value := field.Type.Elem().Kind()
-				key := field.Type.Key().Kind()
-				types = append(types, key, value)
-				_, keyOK := this.types[key]
-				_, valueOK := this.types[value]
-				if keyOK && valueOK {
-					err = builder.AddSimpleField(jsonFieldName, types, field.Type.Kind())
-				} else {
-					if !keyOK {
-						typeScriptChunk, err := this.convertType(field.Type.Key(), customCode)
-						if err != nil {
-							return "", err
-						}
-						result = typeScriptChunk + "\n" + result
-
-					}
-					if !valueOK {
-						typeScriptChunk, err := this.convertType(field.Type.Elem(), customCode)
-						if err != nil {
-							return "", err
-						}
-						result = typeScriptChunk + "\n" + result
-					}
-					name := fmt.Sprintf("Map<%s,%s>", this.types[field.Type.Key().Kind()], field.Type.Elem().Name())
-					builder.AddStructField(jsonFieldName, name)
-				}
-
+				builder.AddStructField(jsonFieldName, "{}")
 			} else if field.Type.Kind() == reflect.Struct || field.Type.Kind() == reflect.Ptr { // Struct:
 
 				kind := field.Type.Kind()
@@ -268,13 +247,7 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 					kind = field.Type.Elem().Kind()
 				}
 				if _, ok := this.types[kind]; ok {
-					types := make([]reflect.Kind, 0)
-					if field.Type.Kind() == reflect.Map {
-						typeName := field.Type.Elem().Kind()
-						key := field.Type.Key().Kind()
-						types = append(types, key, typeName)
-					}
-					err = builder.AddSimpleField(jsonFieldName, types, field.Type.Elem().Kind())
+					err = builder.AddSimpleField(jsonFieldName, this.types[kind], field.Type.Elem().Kind())
 				} else {
 					typeScriptChunk, err := this.convertType(field.Type, customCode)
 					if err != nil {
@@ -299,14 +272,7 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 					err = builder.AddSimpleArrayField(jsonFieldName, field.Type.Elem().Name(), field.Type.Elem().Kind())
 				}
 			} else { // Simple field:
-				types := make([]reflect.Kind, 0)
-				if field.Type.Kind() == reflect.Map {
-					typeName := field.Type.Elem().Kind()
-					key := field.Type.Key().Kind()
-					types = append(types, key, typeName)
-				}
-
-				err = builder.AddSimpleField(jsonFieldName, types, field.Type.Kind())
+				err = builder.AddSimpleField(jsonFieldName, field.Type.Name(), field.Type.Kind())
 			}
 			if err != nil {
 				return "", err
@@ -315,13 +281,13 @@ func (this *TypeScriptify) convertType(typeOf reflect.Type, customCode map[strin
 	}
 
 	result += builder.fields
-	if this.CreateFromMethod {
-		result += fmt.Sprintf("\n%sstatic createFrom(source: any) {\n", this.Indent)
-		result += fmt.Sprintf("%s%svar result = new %s();\n", this.Indent, this.Indent, entityName)
-		result += builder.createFromMethodBody
-		result += fmt.Sprintf("%s%sreturn result;\n", this.Indent, this.Indent)
-		result += fmt.Sprintf("%s}\n\n", this.Indent)
-	}
+	//if this.CreateFromMethod {
+	//	result += fmt.Sprintf("\n%sstatic createFrom(source: any) {\n", this.Indent)
+	//	result += fmt.Sprintf("%s%svar result = new %s();\n", this.Indent, this.Indent, entityName)
+	//	result += builder.createFromMethodBody
+	//	result += fmt.Sprintf("%s%sreturn result;\n", this.Indent, this.Indent)
+	//	result += fmt.Sprintf("%s}\n\n", this.Indent)
+	//}
 
 	if customCode != nil {
 		code := customCode[entityName]
@@ -350,21 +316,16 @@ func (this *typeScriptClassBuilder) AddSimpleArrayField(fieldName, fieldType str
 	if typeScriptType, ok := this.types[kind]; ok {
 		if len(fieldName) > 0 {
 			this.fields += fmt.Sprintf("%s%s: %s[];\n", this.indent, fieldName, typeScriptType)
-			this.createFromMethodBody += fmt.Sprintf("%s%sresult.%s = source[\"%s\"];\n", this.indent, this.indent, fieldName, fieldName)
 			return nil
 		}
 	}
 	return errors.New(fmt.Sprintf("Cannot find type for %s (%s/%s)", kind.String(), fieldName, fieldType))
 }
 
-func (this *typeScriptClassBuilder) AddSimpleField(fieldName string, fieldType []reflect.Kind, kind reflect.Kind) error {
+func (this *typeScriptClassBuilder) AddSimpleField(fieldName string, fieldType string, kind reflect.Kind) error {
 	if typeScriptType, ok := this.types[kind]; ok {
 		if len(fieldName) > 0 {
-			if kind == reflect.Map {
-				typeScriptType = typeScriptType + fmt.Sprintf("<%s,%s>", this.types[fieldType[0]], this.types[fieldType[1]])
-			}
 			this.fields += fmt.Sprintf("%s%s: %s;\n", this.indent, fieldName, typeScriptType)
-			this.createFromMethodBody += fmt.Sprintf("%s%sresult.%s = source[\"%s\"];\n", this.indent, this.indent, fieldName, fieldName)
 			return nil
 		}
 	}
@@ -373,10 +334,8 @@ func (this *typeScriptClassBuilder) AddSimpleField(fieldName string, fieldType [
 
 func (this *typeScriptClassBuilder) AddStructField(fieldName, fieldType string) {
 	this.fields += fmt.Sprintf("%s%s: %s;\n", this.indent, fieldName, fieldType)
-	this.createFromMethodBody += fmt.Sprintf("%s%sresult.%s = source[\"%s\"] ? %s.createFrom(source[\"%s\"]) : null;\n", this.indent, this.indent, fieldName, fieldName, fieldType, fieldName)
 }
 
 func (this *typeScriptClassBuilder) AddArrayOfStructsField(fieldName, fieldType string) {
 	this.fields += fmt.Sprintf("%s%s: %s[];\n", this.indent, fieldName, fieldType)
-	this.createFromMethodBody += fmt.Sprintf("%s%sresult.%s = source[\"%s\"] ? source[\"%s\"].map(function(element) { return %s.createFrom(element); }) : null;\n", this.indent, this.indent, fieldName, fieldName, fieldName, fieldType)
 }
