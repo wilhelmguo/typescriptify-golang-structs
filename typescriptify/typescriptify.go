@@ -60,7 +60,6 @@ func New() *TypeScriptify {
 
 func deepFields(typeOf reflect.Type) []reflect.StructField {
 	fields := make([]reflect.StructField, 0)
-	fmt.Println("111:", typeOf.Kind(), typeOf.Name())
 	if typeOf.Kind() == reflect.Ptr {
 		typeOf = typeOf.Elem()
 	}
@@ -78,7 +77,6 @@ func deepFields(typeOf reflect.Type) []reflect.StructField {
 		if len(jsonTags) == 2 && jsonTags[1] == "inline" && f.Anonymous {
 			anonymous = true
 		}
-		fmt.Println("222:", f.Type.Kind(), f.Type.Name(), jsonTag)
 		if anonymous && kind == reflect.Struct {
 			//fmt.Println(v.Interface())
 			fields = append(fields, deepFields(f.Type)...)
